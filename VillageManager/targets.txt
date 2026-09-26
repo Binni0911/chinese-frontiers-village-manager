@@ -1,0 +1,98 @@
+# Village Manager targets
+# One item per line:
+#   Item Name = 5          keep at least 5
+#   Item Name = 1 stack    keep at least one full stack (2 stacks, 3 stacks, ...)
+#   Item Name = 3000, 2500 stop making it at 3000, start again at 2500
+# Names are exactly as the game shows them (see F8). Lines starting with # are ignored.
+
+# --- Tools the villagers use ---
+# Hoe = farmers | Hatchet = wood, bamboo | Pickaxe = stone, limestone | Shovel = clay, sand
+Stone Hatchet = 3
+Stone Pickaxe = 3
+Stone Shovel  = 3
+Stone Hoe     = 3
+Fishing Rod   = 2
+
+# --- Late-game carpentry ---
+Carved Plank   = 1 stack
+Custom Beam    = 1 stack
+Dougong        = 1 stack
+Lattice Screen = 1 stack
+Wooden Pole    = 1 stack
+
+# --- Building parts you use directly in builds ---
+Planed Beam    = 1 stack
+Raw Plank      = 500
+Raw Beam       = 500
+Wedge          = 500
+Wood Block     = 500
+Brace          = 500
+Grid           = 500
+
+# --- Supplies and refined materials ---
+Rope              = 1 stack
+Refined Stone     = 1 stack
+Refined Limestone = 1 stack
+
+# --- Pile items (stop at cap, resume lower) ---
+Log          = 2000, 1800
+Stone Blocks = 2000, 1800
+Clay Brick   = 2000, 1800
+Roof Tiles   = 2000, 1800
+
+# --- Raw materials: gatherers stop at the first number, restart at the second ---
+Wood      = 2000, 1500
+Bamboo    = 2000, 1500
+Clay      = 2000, 1500
+Sand      = 2000, 1500
+Stone     = 2000, 1500
+Limestone = 2000, 1500
+
+# --- Rice: above the first number the farm drops rice to 10% ---
+Rice      = 2000, 1600   # rice only stacks to 200, so 2000 = 10 slots
+
+# --- Food reserve (Rice + Fish + Pork + Chicken Meat + Egg) ---
+# Below the first number, farm work moves back to rice until food is above the second.
+Food Reserve = 3000, 5000
+
+# --- Cooked dishes (kitchen) ---
+Pearl Fish Ball of Hubei             = 1 stack
+Miba                                 = 1 stack
+Fried Hongshan Caitai                = 1 stack
+Mianyang Three Kinds of Steamed Food = 1 stack
+Stewed Sliced Fish                   = 1 stack
+Hubei Vegetable Soup                 = 1 stack
+Stir-fried Conches                   = 1 stack
+Jingyuan Yellow Braised Lamb Meat    = 1 stack
+Grabbing Mutton                      = 1 stack
+Jiayuguan Soup                       = 1 stack
+Roujiamo                             = 1 stack
+Gourd Head                           = 1 stack
+Gokui                                = 1 stack
+Shaanxi Style Veggies                = 1 stack
+
+# --- Endgame supplies (stations stop when you have this much, counting the caravan) ---
+Mortar              = 1000, 800
+Paper               = 500, 400
+Builder's Paint Kit = 1000, 800
+Artisan's Paint Kit = 500, 400
+
+# --- Farm crops: stop growing at the target, share goes to crops still short ---
+Indigo   = 1 stack
+Gromwell = 1 stack
+Curcuma  = 1 stack
+Rubia    = 1 stack
+
+# --- Kitchen crops (vegetables and spices, 1 stack = 100) ---
+Radish         = 1 stack
+Onion          = 1 stack
+Garlic         = 1 stack
+Ginger         = 1 stack
+Sesame         = 1 stack
+Cumin          = 1 stack
+Cloves         = 1 stack
+Bay Leaf       = 1 stack
+Anise          = 1 stack
+Licorice       = 1 stack
+Coriander      = 1 stack
+Sichuan Pepper = 1 stack
