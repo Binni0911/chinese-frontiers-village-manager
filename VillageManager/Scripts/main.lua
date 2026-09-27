@@ -750,12 +750,31 @@ local function RunManager(apply)
     ResolveStackTargets(targets, report)
     local jobs, jobByName = LoadRecipes()
 
+    -- seed names come from the farm job names ("Cloves & Clove Seed" -> "Clove Seed"),
+    -- so they are right even before the player has ever owned the seed
+    for _, j in pairs(jobs) do
+        if IsFarmJob(j) and j.needs[1] and not rowNameCache[j.needs[1]] then
+            local _, seedName = CropOf(j)
+            if seedName then rowNameCache[j.needs[1]] = seedName end
+        end
+    end
+
     -- what is needed, including ingredients down the chain
     local demand, reason = BuildDemand(targets, jobByName, haveAll, report)
     PropagateDemand(demand, reason, jobs, jobByName, have, haveAll, farmNeeds, blocked, moveAdvice)
+    -- only mention skipped recipes at stations the player has actually built
+    local notBuilt = 0
     for job, ing in pairs(blocked) do
         demand[job] = nil
-        report[#report + 1] = string.format("   - skipping %s: no %s in stock", jobs[job] and jobs[job].name or job, ing)
+        local j = jobs[job]
+        if j and FindStationState(c, j.place, j.station) then
+            report[#report + 1] = string.format("   - skipping %s: no %s in stock", j.name, ing)
+        else
+            notBuilt = notBuilt + 1
+        end
+    end
+    if notBuilt > 0 then
+        report[#report + 1] = string.format("   (%d recipe(s) ignored: their station isn't built yet)", notBuilt)
     end
 
     -- plan each managed station
@@ -806,9 +825,12 @@ local function RunManager(apply)
     for ing, m in pairs(moveAdvice) do
         Log(string.format("  Move from caravan: %s (%d there, warehouse has %d)", ing, m.caravan, m.warehouse))
     end
-    for ing, dish in pairs(farmNeeds) do
-        if not targets[ing] then
-            Log(string.format("  Farm advice: grow more %s (needed for %s)", ing, dish))
+    -- farm advice only makes sense once there is a farm
+    if FindStationState(c, FARM_PLACE, FARM_STATION) then
+        for ing, dish in pairs(farmNeeds) do
+            if not targets[ing] then
+                Log(string.format("  Farm advice: grow more %s (needed for %s)", ing, dish))
+            end
         end
     end
 
