@@ -148,7 +148,7 @@ local function GetCaravans()
     for _, c in ipairs(FindAllOf("BP_ContainerComponent_C") or {}) do
         if c:IsValid() then
             local n = c:GetFullName():lower()
-            if n:find("caravan", 1, true) and not n:find("default__", 1, true) then found[#found + 1] = c end
+            if n:find("%.caravanchestcontainer$") and not n:find("default__", 1, true) then found[#found + 1] = c end
         end
     end
     return found
