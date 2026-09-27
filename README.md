@@ -81,6 +81,18 @@ It checks that the plan matches the saved result, that nothing errors, and that 
 - Game patches can rename the internal fields the mod reads (section 3 of `main.lua`). If it stops working after an update, those need re-checking with a UE4SS header dump.
 - It overrides manual changes on the stations it manages.
 
+## Extra: FixStuckNPC (Ghosts of the Fallen fix)
+
+In the side quest **Ghosts of the Fallen**, the step "Talk to Daoshi" can point to the small shrine in the Nine Arch Bridge fortress with nobody there. The Daoshi (`BP_NPC_RV_DAOSHI_C`) has spawned about 50 m under the ground. Reloading doesn't fix it.
+
+`FixStuckNPC` is a small separate mod that moves him back up:
+
+1. Copy the `FixStuckNPC` folder into `...\Win64\ue4ss\Mods\` and add `FixStuckNPC : 1` to `mods.txt`.
+2. Stand on the quest marker.
+3. **Numpad 7** lists characters under you (changes nothing). **Numpad 8** brings the Daoshi up in front of you.
+
+Then talk to him as normal. It works for any NPC stuck under the map near you, but it only picks the Daoshi or the nearest character under you.
+
 ## Credits
 
 Designed and play-tested by Binni. Implementation written with Claude (Anthropic).
