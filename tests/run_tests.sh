@@ -44,6 +44,7 @@ run apply_twice ""        1 NUM_TWO NUM_TWO NUM_ONE
 run hungry      HUNGRY=1  1 NUM_TWO NUM_TWO
 # A brand-new village: different workplace numbers, unbuilt kitchen, no seeds
 WORLD=world_fresh.lua run fresh_save "" 1 NUM_TWO NUM_TWO F9
+WORLD=world_fresh_fed.lua run fresh_fed "" 1 NUM_TWO
 
 [ $fail = 0 ] && echo "ALL TESTS PASSED" || echo "SOME TESTS FAILED"
 exit $fail

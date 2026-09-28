@@ -192,10 +192,10 @@ local function FindStationState(c, stationWanted)
 end
 
 -- Which station a game economy object belongs to (used by the warning listener)
-local function StationOfEcon(c, econ)
+-- addr: the economy object's address (copied in the warning hook)
+local function StationOfEcon(c, addr)
     local found = nil
     pcall(function()
-        local addr = econ:GetAddress()
         c.WorkplaceStations:ForEach(function(_, placeElem)
             if found then return end
             local place = placeElem:get()
@@ -262,6 +262,7 @@ end
 --   Name = 5            keep at least 5
 --   Name = 2 stacks     keep at least two full stacks
 --   Name = 3000, 2500   stop at 3000, start again at 2500
+--   Name = 100, 150 per worker   the same, times the number of workers
 local function LoadTargets()
     local t = {}
     local f = io.open(FILES.targets, "r")
@@ -269,9 +270,12 @@ local function LoadTargets()
     for line in f:lines() do
         line = line:gsub("\r$", "")   -- tolerate Windows line endings
         line = line:gsub("#.*$", "")
+        local wname, wa, wb = line:match("^%s*(.-)%s*=%s*(%d+)%s*,?%s*(%d*)%s*[Pp]er%s+[Ww]orker%s*$")
         local sname, sn = line:match("^%s*(.-)%s*=%s*(%d+)%s*[Ss]tacks?%s*$")
         local name, a, b = line:match("^%s*(.-)%s*=%s*(%d+)%s*,?%s*(%d*)%s*$")
-        if sname and sname ~= "" then
+        if wname and wname ~= "" then
+            t[Trim(wname)] = { perWorker = tonumber(wa), perWorkerResume = tonumber(wb), amount = 0 }
+        elseif sname and sname ~= "" then
             t[Trim(sname)] = { stacks = tonumber(sn), amount = 0 }
         elseif name and name ~= "" then
             t[Trim(name)] = { amount = tonumber(a), resume = tonumber(b) }
@@ -484,15 +488,21 @@ local function TryAttachWarningHooks()
     for fn, label in pairs(WARNINGS) do
         local ok, err = pcall(function()
             RegisterHook(classPath .. ":" .. fn, function(self, jobID)
-                local id = jobID:get()
-                local station = StationOfEcon(GetNpcController(), self:get())
-                local jkey = station and JobKey(station, id) or id
-                local key = fn .. ":" .. tostring(jkey)
-                local now = os.time()
-                recentWarn[key] = now
-                if lastPrinted[key] and now - lastPrinted[key] < 60 then return end
-                lastPrinted[key] = now
-                Log(string.format("WARNING  %-22s -> %s", label, station and JobName(jkey) or ("job " .. id)))
+                -- The game is in the middle of its own function here, and it calls
+                -- these warnings very often. Only copy two numbers, and look up the
+                -- station after the game's function has finished.
+                local ok, id, addr = pcall(function() return jobID:get(), self:get():GetAddress() end)
+                if not ok then return end
+                ExecuteInGameThread(function()
+                    local station = StationOfEcon(GetNpcController(), addr)
+                    local jkey = station and JobKey(station, id) or id
+                    local key = fn .. ":" .. tostring(jkey)
+                    local now = os.time()
+                    recentWarn[key] = now
+                    if lastPrinted[key] and now - lastPrinted[key] < 60 then return end
+                    lastPrinted[key] = now
+                    Log(string.format("WARNING  %-22s -> %s", label, station and JobName(jkey) or ("job " .. id)))
+                end)
             end)
         end)
         if not ok then Log("Could not hook " .. fn .. ": " .. tostring(err)) end
@@ -848,6 +858,31 @@ local function MarkBlocked(demand, blocked, jobs, jobByName, haveAll)
     end
 end
 
+-- Villagers who can be given a job (not the player, story NPCs or animals)
+local WORKER_CLASS = "BP_Character_NPC_Human_Worker_Village_C"
+
+local function CountWorkers()
+    local n = 0
+    for _, a in ipairs(FindAllOf(WORKER_CLASS) or {}) do
+        if a:IsValid() and not a:GetFullName():find("Default__", 1, true) then n = n + 1 end
+    end
+    return n
+end
+
+-- Turn "per worker" targets into amounts for the village as it is now
+local function ResolvePerWorkerTargets(targets, report)
+    local workers
+    for name, t in pairs(targets) do
+        if t.perWorker then
+            workers = workers or CountWorkers()
+            t.amount = t.perWorker * workers
+            t.resume = t.perWorkerResume and t.perWorkerResume * workers or nil
+            report[#report + 1] = string.format("   %s: %d per worker x %d workers = %d%s", name, t.perWorker,
+                workers, t.amount, t.resume and string.format(" (refills to %d)", t.resume) or "")
+        end
+    end
+end
+
 ------------------------------------------------------------------------
 -- 13. MANAGER: ONE RUN
 ------------------------------------------------------------------------
@@ -861,6 +896,7 @@ local function RunManager(apply)
     local farmNeeds, blocked, moveAdvice = {}, {}, {}
     local targets = LoadTargets()
     ResolveStackTargets(targets, report)
+    ResolvePerWorkerTargets(targets, report)
     local jobs, jobByName = LoadRecipes()
 
     -- seed names come from the farm job names ("Cloves & Clove Seed" -> "Clove Seed"),

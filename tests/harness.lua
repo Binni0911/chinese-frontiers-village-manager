@@ -60,7 +60,11 @@ table.sort(pileList, function(a, b) return a[1].ToString() < b[1].ToString() end
 local storage = Obj("BP_NPC_Storage_Component_C /Game/X:PersistentLevel.BP_PlayerController_C_1.NPC_Storage",
   { MaterialPilesInventory = Map(pileList), SpawnersMaxCapacity = 2000, ChestSlotsNumber = 203 })
 
-local byClass = { BP_NPC_Controller_C = { ctrl }, BP_ContainerComponent_C = { chest, caravan }, BP_NPC_Storage_Component_C = { storage } }
+-- villagers (plus the class template, which must not be counted)
+local workers = { Obj("BP_Character_NPC_Human_Worker_Village_C /Script/X.Default__BP_Character_NPC_Human_Worker_Village_C") }
+for i = 1, W.workers or 0 do workers[#workers+1] = Obj("BP_Character_NPC_Human_Worker_Village_C /Game/X:PersistentLevel.Worker_" .. i) end
+local byClass = { BP_NPC_Controller_C = { ctrl }, BP_ContainerComponent_C = { chest, caravan }, BP_NPC_Storage_Component_C = { storage },
+  BP_Character_NPC_Human_Worker_Village_C = workers }
 function FindAllOf(c) return byClass[c] end
 function FindFirstOf(c) return (byClass[c] or {})[1] end
 function RegisterHook() end

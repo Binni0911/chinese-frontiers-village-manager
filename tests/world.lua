@@ -151,4 +151,4 @@ stations={
 {"Wood",1122,500,"Car_Wood"},
 {"Wood Block",335,500,"Car_WoodBlock"},
 {"Wooden Pole",830,500,"Car_WoodenPole"},
-},piles={LogSpawner=2000,StoneSpawner=2000,RedBrickSpawner=987,CeramicTilesSpawner=1157}}
+},workers=33,piles={LogSpawner=2000,StoneSpawner=2000,RedBrickSpawner=987,CeramicTilesSpawner=1157}}

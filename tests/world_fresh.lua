@@ -29,4 +29,4 @@ stations={
 {"Wood",161,500,"Component_Wood"},
 {"Clay",154,500,"Component_Clay"},
 {"Bamboo",161,500,"Component_Bamboo"},
-},piles={LogSpawner=0,StoneSpawner=0,RedBrickSpawner=0,CeramicTilesSpawner=0}}
+},workers=5,piles={LogSpawner=0,StoneSpawner=0,RedBrickSpawner=0,CeramicTilesSpawner=0}}
