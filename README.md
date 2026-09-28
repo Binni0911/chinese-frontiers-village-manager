@@ -6,6 +6,10 @@ The game lets you set what share of each workstation's workers goes to each reci
 
 **It does not create items or change game rules.** It only changes the job percentages you can set yourself in Village Management. Workers still need their materials, tools and food.
 
+## Status
+
+**Finished – no further work planned.** The mod does what we built it for, from a new save to the endgame. We won't be adding to it unless there is interest: if you find a bug or want a feature, [open an issue](https://github.com/Binni0911/chinese-frontiers-village-manager/issues) and we'll take a look.
+
 ## What it does
 
 - **Targets** – keep a set amount of any item (`Dougong = 1 stack`, `Stone Hoe = 3`).
@@ -22,7 +26,7 @@ The game lets you set what share of each workstation's workers goes to each reci
 
 1. Install [UE4SS](https://github.com/UE4SS-RE/RE-UE4SS) (the experimental build supports UE 5.5, which the game uses) into
    `Chinese Frontiers\ChineseFrontiers\Binaries\Win64`.
-2. Copy the `VillageManager` folder into `...\Win64\ue4ss\Mods\`.
+2. Download the zip from [Releases](https://github.com/Binni0911/chinese-frontiers-village-manager/releases) and copy the `VillageManager` folder into `...\Win64\ue4ss\Mods\`.
 3. Add this line to `ue4ss\Mods\mods.txt` (above the `Keybinds` line):
    ```
    VillageManager : 1
