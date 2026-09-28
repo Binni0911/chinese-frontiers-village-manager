@@ -86,6 +86,7 @@ Rubia    = 1 stack
 
 # --- Kitchen crops (vegetables and spices, 1 stack = 100) ---
 Radish         = 1 stack
+Flax           = 1 stack   # huts need 52 flax each
 Onion          = 1 stack
 Garlic         = 1 stack
 Ginger         = 1 stack

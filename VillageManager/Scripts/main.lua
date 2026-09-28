@@ -548,7 +548,9 @@ end
 -- Pushes demand down to ingredients that run low (up to 4 steps deep).
 -- Fills: farmNeeds[crop] = dish, blocked[job] = missing ingredient,
 --        moveAdvice[item] = {caravan, warehouse}
-local function PropagateDemand(demand, reason, jobs, jobByName, have, haveAll, farmNeeds, blocked, moveAdvice)
+-- skip: recipes already known to be blocked. They still tell the farm what
+-- to grow, but they don't pull parts from other stations.
+local function PropagateDemand(demand, reason, jobs, jobByName, have, haveAll, farmNeeds, blocked, moveAdvice, skip)
     local queue = {}
     for job in pairs(demand) do queue[#queue + 1] = { job = job, depth = 0 } end
     local i = 1
@@ -572,7 +574,7 @@ local function PropagateDemand(demand, reason, jobs, jobByName, have, haveAll, f
                     if producer and producer ~= cur.job then
                         if IsFarmJob(pj) then
                             farmNeeds[ingName] = j.name   -- farm rules handle this
-                        else
+                        elseif not skip[cur.job] then
                             local d = demand[cur.job] * 0.9
                             if d > (demand[producer] or 0) then
                                 demand[producer] = d
@@ -696,7 +698,7 @@ local function PlanFarm(c, jobs, have, haveAll, targets, farmNeeds, lines)
                     moved = moved + take
                 end
             end
-            lines[#lines + 1] = "   Food is below the reserve - moving farm work to rice"
+            lines[#lines + 1] = "   Food is below the reserve - farm work goes to rice first"
         end
     end
     new[RICE_JOB] = math.min(1, (current[RICE_JOB] or 0) + moved)
@@ -778,6 +780,31 @@ local function PlanFarm(c, jobs, have, haveAll, targets, farmNeeds, lines)
         end
     end
 
+    -- 5) fill any unassigned share (a new farm starts at 0% everywhere).
+    --    Food low: all of it to rice. Otherwise: crops that are short, then rice.
+    local sum = 0
+    for _, f in pairs(new) do sum = sum + f end
+    local free = math.floor((1 - sum) * 20 + 0.5) / 20   -- whole 5% steps
+    if free >= 0.05 then
+        local riceSeeds = (have[Norm("Rice Seed")] or 0) > 0
+        local fillers = {}
+        if not foodLow then
+            for _, job in ipairs(under) do fillers[#fillers + 1] = job end
+        end
+        if riceSeeds and not riceHigh then fillers[#fillers + 1] = RICE_JOB end
+        if #fillers == 0 then
+            lines[#lines + 1] = string.format("   Farm: %d%% of the farm has nothing to plant (no seeds for anything needed)",
+                math.floor(free * 100 + 0.5))
+        else
+            if foodLow and riceSeeds then fillers = { RICE_JOB } end
+            while free >= 0.049 do
+                for _, job in ipairs(fillers) do
+                    if free >= 0.049 then new[job] = (new[job] or 0) + 0.05; free = free - 0.05 end
+                end
+            end
+        end
+    end
+
     local changed = false
     for job, f in pairs(new) do
         if math.abs(f - (current[job] or 0)) > 0.01 then
@@ -787,6 +814,38 @@ local function PlanFarm(c, jobs, have, haveAll, targets, farmNeeds, lines)
     end
     if not changed then return nil end
     return st, new
+end
+
+-- A recipe is also blocked when it needs something we have none of that
+-- can't be made either (Bread <- Sourdough <- Rice Flour <- no Rice).
+-- Chickens and pigs are run by the player, so no eggs means no eggs.
+local MANAGED_SET = {}
+for _, station in ipairs(MANAGED) do MANAGED_SET[station] = true end
+
+local function MarkBlocked(demand, blocked, jobs, jobByName, haveAll)
+    local grew = true
+    while grew do
+        grew = false
+        for job in pairs(demand) do
+            local j = jobs[job]
+            if j and not blocked[job] then
+                for _, row in ipairs(j.needs) do
+                    local ing = RowToName(row)
+                    if (haveAll[Norm(ing)] or 0) == 0 then
+                        local producer = jobByName[Norm(ing)]
+                        local pj = producer and jobs[producer]
+                        local playerRun = pj and not MANAGED_SET[pj.station] and pj.station ~= FARM_STATION
+                        if not producer or producer == job or blocked[producer]
+                            or not demand[producer] or playerRun then
+                            blocked[job] = ing
+                            grew = true
+                            break
+                        end
+                    end
+                end
+            end
+        end
+    end
 end
 
 ------------------------------------------------------------------------
@@ -813,31 +872,22 @@ local function RunManager(apply)
         end
     end
 
-    -- what is needed, including ingredients down the chain
-    local demand, reason = BuildDemand(targets, jobByName, haveAll, report)
-    PropagateDemand(demand, reason, jobs, jobByName, have, haveAll, farmNeeds, blocked, moveAdvice)
-
-    -- a recipe is also blocked when it needs something we have none of that
-    -- can't be made either (Bread <- Sourdough <- Rice Flour <- no Rice)
-    local grew = true
-    while grew do
-        grew = false
-        for job in pairs(demand) do
-            local j = jobs[job]
-            if j and not blocked[job] then
-                for _, row in ipairs(j.needs) do
-                    local ing = RowToName(row)
-                    if (haveAll[Norm(ing)] or 0) == 0 then
-                        local producer = jobByName[Norm(ing)]
-                        if not producer or producer == job or blocked[producer] or not demand[producer] then
-                            blocked[job] = ing
-                            grew = true
-                            break
-                        end
-                    end
-                end
-            end
-        end
+    -- what is needed, including ingredients down the chain.
+    -- Runs again until nothing new is blocked, so parts only wanted by
+    -- blocked dishes are dropped (no flour for bread nobody can bake).
+    local demand, reason
+    local blockedBefore = -1
+    for pass = 1, 5 do
+        farmNeeds, moveAdvice = {}, {}
+        local skip = {}
+        for job in pairs(blocked) do skip[job] = true end
+        demand, reason = BuildDemand(targets, jobByName, haveAll, pass == 1 and report or {})
+        PropagateDemand(demand, reason, jobs, jobByName, have, haveAll, farmNeeds, blocked, moveAdvice, skip)
+        MarkBlocked(demand, blocked, jobs, jobByName, haveAll)
+        local count = 0
+        for _ in pairs(blocked) do count = count + 1 end
+        if count == blockedBefore then break end
+        blockedBefore = count
     end
 
     -- one summary line: what is missing, and how many recipes each item blocks
