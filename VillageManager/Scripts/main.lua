@@ -602,7 +602,22 @@ end
 ------------------------------------------------------------------------
 -- 11. MANAGER: PERCENTAGES PER STATION
 ------------------------------------------------------------------------
--- Turns demand weights into 5% steps that add up to 100%
+-- Turns demand weights into 5% steps that add up to 100%.
+--
+-- The game shows each job's share in 5% steps, and a station's shares must
+-- add up to 100% (or all be 0% when the station is paused). Rounding every
+-- job on its own breaks that: three equal jobs give 33.3% each, which rounds
+-- to 35% + 35% + 35% = 105%.
+--
+-- So it works in two steps:
+--   1. Round each job to the nearest 5%, but never below MIN_SHARE, so a job
+--      that is needed at all always gets some workers.
+--   2. Fix the total 5% at a time: if it is over 100%, take 5% from the
+--      biggest share that can spare it; if it is under, give 5% to the job
+--      that wanted the most. Stop as soon as the total is exactly 100%.
+--
+-- Example: want = {A = 1, B = 1, C = 1}
+--   step 1: 35%, 35%, 35% = 105%   step 2: one job drops to 30% -> 100%
 local function SnapShares(want)
     local total = 0
     for _, w in pairs(want) do total = total + w end
@@ -883,12 +898,54 @@ local function ResolvePerWorkerTargets(targets, report)
     end
 end
 
+-- Startup check: can the mod still read the game's data? A game update can
+-- rename the fields in section 3. Without this check the mod would just do
+-- nothing, or print nonsense, with no hint why.
+local GITHUB_ISSUES = "https://github.com/Binni0911/chinese-frontiers-village-manager/issues"
+local fieldsOk = nil   -- nil = not checked yet this session
+
+local function CheckGameFields(c)
+    local function need(what, fn)
+        local ok, v = pcall(fn)
+        if not ok or v == nil then error(what, 0) end
+        return v
+    end
+    local ok, problem = pcall(function()
+        need("the list of workplaces (\"Workplace id's\")", function() return c["Workplace id's"]:GetArrayNum() end)
+        local place = need("the workplace stations", function() return c.WorkplaceStations[1] end)
+        need("station numbers (F.StationIDs)", function() return place[F.StationIDs]:GetArrayNum() end)
+        local st = need("station states (F.StationStates)", function() return place[F.StationStates][1] end)
+        need("the station's economy object (ECON_FIELD)", function() return st[ECON_FIELD] end)
+        need("job percentages (F.Recipes / F.Force)", function()
+            local force
+            st[F.Recipes]:ForEach(function(_, v) force = force or v:get()[F.Force] end)
+            return force
+        end)
+        local chest = need("the warehouse chest", function() return GetStorageChest() end)
+        chest.Items:ForEach(function(_, elem)
+            local it = elem:get()
+            if (it[ITEM.Amount] or 0) > 0 then
+                need("item amounts (ITEM.Amount)", function() return it[ITEM.Amount] end)
+                need("item rows (ITEM.Handle)", function() return it[ITEM.Handle].RowName:ToString() end)
+                need("item names (ITEM.Name)", function() return it[ITEM.Name]:ToString() end)
+            end
+        end)
+    end)
+    if ok then return true end
+    Log("PROBLEM: the mod can't read " .. tostring(problem) .. " from the game.")
+    Log("  A game update has probably renamed it. The mod will not change anything")
+    Log("  until it is fixed. Please report it here: " .. GITHUB_ISSUES)
+    return false
+end
+
 ------------------------------------------------------------------------
 -- 13. MANAGER: ONE RUN
 ------------------------------------------------------------------------
 local function RunManager(apply)
     local c = GetNpcController()
     if not c then Log("Manager: village not loaded yet.") return end
+    if fieldsOk == nil then fieldsOk = CheckGameFields(c) end
+    if not fieldsOk then Log("Manager: stopped - see the PROBLEM message above (Ctrl+R to check again).") return end
     local have, haveAll, used, total = ReadAllStock()
     if not have then Log("Manager: storage not found.") return end
 

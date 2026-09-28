@@ -45,6 +45,10 @@ run hungry      HUNGRY=1  1 NUM_TWO NUM_TWO
 # A brand-new village: different workplace numbers, unbuilt kitchen, no seeds
 WORLD=world_fresh.lua run fresh_save "" 1 NUM_TWO NUM_TWO F9
 WORLD=world_fresh_fed.lua run fresh_fed "" 1 NUM_TWO
+# A game update renamed a field: the mod must say so and change nothing
+run renamed_field "RENAMED=1" 0 NUM_TWO
+grep -q "PROBLEM: the mod can't read job percentages" "$stage/renamed_field.out" \
+  && echo "ok   renamed_field: clear message shown" || { echo "FAIL renamed_field: no PROBLEM message"; fail=1; }
 
 [ $fail = 0 ] && echo "ALL TESTS PASSED" || echo "SOME TESTS FAILED"
 exit $fail

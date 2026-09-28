@@ -21,6 +21,8 @@ local function Obj(name, t) t = t or {}; t.IsValid = function() return true end;
 local F = { StationIDs="WorkStationsID_16_038795414E200FE36FBA18B5E36A28A3", StationStates="WorkStationsStates_18_DDB65DE14D2C24B73F4D6F9A1F061F88",
   Recipes="Recipes_34_4BE92CAD49DABB872178398069156C73", Force="Force_12_4BE92CAD49DABB872178398069156C73" }
 local ECON="Economy_35_3D2230474EB2029A912FF6AA202323FD"
+-- RENAMED=1 pretends a game update renamed the job percentage field
+if os.getenv("RENAMED") == "1" then F.Force = "Force_13_RENAMED" end
 local IT = { H="ItemHandle_60_EFC3446F4BEB3A00026CE2A9EAC341F7", A="Amount_63_A266101D46331E1C405B5BBCCD66B5AB",
   N="Name_6_4BDAD3B24B564228353D28A42C703448", M="MaxStack_17_A4F940864DC6C3A24983778907BB130E" }
 

@@ -13,9 +13,10 @@ The game lets you set what share of each workstation's workers goes to each reci
 - **Recipe chains** – if Dougong is short it also schedules Brace, then Wedge, as needed.
 - **Caravan aware** – items banked in the caravan count towards targets, and it tells you to move ingredients back instead of making more.
 - **Tools** – reacts to the game's own "missing tools" warnings.
-- **Farm** – stops crops that have enough, gives their share to crops that are short, never plants crops with no seeds, and keeps a food reserve.
-- **Kitchen** – skips dishes whose ingredients you don't have.
-- **Explains itself** – every change is printed with its reason.
+- **Farm** – stops crops that have enough, gives their share to crops that are short, never plants crops with no seeds, and keeps a food reserve. A new farm with nothing assigned is given work straight away.
+- **Kitchen** – skips dishes whose ingredients you don't have, and doesn't make parts (flour, dough) for dishes that can't be finished.
+- **Grows with your village** – works from the first warehouse on a new save. The food reserve can scale with your number of workers.
+- **Explains itself** – every change is printed with its reason, and one line lists what is missing.
 
 ## Install
 
@@ -39,6 +40,7 @@ The game lets you set what share of each workstation's workers goes to each reci
 | F6 | Learn job names and recipes from the open Village Management screen |
 | F7 | Show material piles (logs, stone blocks, bricks, tiles) |
 | F8 | Show warehouse chest contents |
+| F9 | List unlocked stations and their current job percentages |
 
 Start with **Numpad 1** and read the plan before applying anything.
 
@@ -50,8 +52,12 @@ Edit `VillageManager\targets.txt`. Changes are picked up on the next run — no 
 Stone Hatchet = 3          keep at least 3
 Dougong       = 1 stack    keep one full stack (uses the item's real stack size)
 Wood          = 2000, 1500 stop at 2000, start again at 1500
-Food Reserve  = 3000, 5000 below 3000, move farm work to rice until back at 5000
+Fish          = 1000, 600  fishing stops at 1000, starts again at 600
+Food Reserve  = 100, 150 per worker
+                           5 workers: below 500, farm work goes to rice until back at 750
 ```
+
+`per worker` works on any target: the numbers are multiplied by how many villagers you have, so the line keeps fitting as the village grows.
 
 Names must match what the game shows (F8 lists them). Anything without a line in `targets.txt` is never produced on purpose, only as an ingredient for something that has one.
 
@@ -77,7 +83,10 @@ It checks that the plan matches the saved result, that nothing errors, and that 
 
 ## Known limitations
 
-- Built and tested on one endgame save. The station numbers come from the game's own lists and should match other saves, but that isn't confirmed yet.
+- Tested on an endgame save and a fresh save. Stations are found by their station number, which is the same on both.
+- The game doesn't say whether a station is built or only unlocked, so an unlocked but unbuilt station can get a plan. This is harmless: nobody works there yet.
+- Chickens and pigs are left to you. If you have no eggs, recipes that need eggs count as blocked.
+- Gatherers need tools in the warehouse (hatchet, pickaxe, shovel, hoe, fishing rod). Until the Stonemason tool bench is unlocked you have to craft them yourself; the plan shows a "missing tools" warning when one is short.
 - Game patches can rename the internal fields the mod reads (section 3 of `main.lua`). If it stops working after an update, those need re-checking with a UE4SS header dump.
 - It overrides manual changes on the stations it manages.
 
