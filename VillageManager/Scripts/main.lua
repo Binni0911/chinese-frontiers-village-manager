@@ -35,17 +35,39 @@ local AUTO_INTERVAL_MS  = 120000   -- auto mode runs every 2 minutes
 local INGREDIENT_BUFFER = 150      -- keep at least this many of each ingredient in the warehouse
 local MIN_SHARE         = 0.05     -- smallest share for a job that is needed (5%)
 local WARNING_MEMORY_S  = 180      -- how long a "missing tools" warning counts (seconds)
-local FARM_PLACE, FARM_STATION, RICE_JOB = 11, 21, 58
+-- Stations are found by their station number, which is the same in every
+-- save. (Workplace numbers are not: a Carpenter can be workplace 1 in one
+-- save and 8 in another.) Job numbers repeat between stations, so a job is
+-- always named by station AND job: JobKey(21, 58) = 21058 = rice on the farm.
+local function JobKey(station, job) return station * 1000 + job end
+local function KeyStation(key) return key // 1000 end
+local function KeyJob(key) return key % 1000 end
 
--- Stations the manager may change: { workplace, station }
+local FARM_STATION = 21
+local RICE_JOB = JobKey(21, 58)
+
+-- Stations the manager may change (station numbers)
 local MANAGED = {
-    {8, 9}, {8, 10}, {8, 8},                                   -- carpentry, logs
-    {9, 13}, {9, 14},                                          -- tools & refining, stone blocks
-    {10, 11}, {10, 12},                                        -- bricks & tiles, mortar
-    {6, 17},                                                   -- kitchen
-    {3, 1}, {3, 2}, {3, 3}, {3, 4}, {3, 5}, {3, 6}, {3, 7},    -- gatherers
-    {7, 15}, {7, 16},                                          -- paint kits, paper
+    9, 10, 8,                   -- carpentry, logs
+    13, 14,                     -- tools & refining, stone blocks
+    11, 12,                     -- bricks & tiles, mortar
+    17,                         -- kitchen
+    1, 2, 3, 4, 5, 6, 7,        -- gatherers (wood, stone, sand, fishing, clay, limestone, bamboo)
+    15, 16,                     -- paint kits, paper
 }
+
+-- Readable names for the plan output
+local STATION_NAME = {
+    [1] = "Wood", [2] = "Stone", [3] = "Sand", [4] = "Fishing", [5] = "Clay",
+    [6] = "Limestone", [7] = "Bamboo", [8] = "Logs", [9] = "Carpenter",
+    [10] = "Carpenter: carving", [11] = "Bricks & tiles", [12] = "Mortar",
+    [13] = "Stonemason: tools & refining", [14] = "Stone blocks",
+    [15] = "Paint kits", [16] = "Paper", [17] = "Kitchen",
+    [19] = "Chickens", [20] = "Pigs", [21] = "Farm",
+}
+local function StationLabel(station)
+    return string.format("Station %d (%s)", station, STATION_NAME[station] or "?")
+end
 
 -- Pile items are stored in material piles, not in the chest
 local PILE_KEY = {
@@ -53,11 +75,12 @@ local PILE_KEY = {
     ["Clay Brick"] = "RedBrickSpawner", ["Roof Tiles"] = "CeramicTilesSpawner",
 }
 
--- Which tool each gathering job uses (job id -> tool name)
-local TOOL_FOR_JOB = {
-    [1] = "Stone Hatchet", [5] = "Stone Hatchet",   -- wood, bamboo
-    [3] = "Stone Shovel",  [6] = "Stone Shovel",    -- clay, sand
-    [4] = "Stone Pickaxe", [7] = "Stone Pickaxe",   -- limestone, stone
+-- Which tool each gathering station uses (station number -> tool name)
+local TOOL_FOR_STATION = {
+    [1] = "Stone Hatchet", [7] = "Stone Hatchet",   -- wood, bamboo
+    [5] = "Stone Shovel",  [3] = "Stone Shovel",    -- clay, sand
+    [6] = "Stone Pickaxe", [2] = "Stone Pickaxe",   -- limestone, stone
+    [4] = "Fishing Rod",                            -- fishing
 }
 
 -- What counts as food for the food reserve
@@ -155,10 +178,10 @@ local function GetCaravans()
 end
 
 -- One station's state inside the controller
-local function FindStationState(c, placeWanted, stationWanted)
-    local placeIDs, found = c["Workplace id's"], nil
+local function FindStationState(c, stationWanted)
+    local found = nil
     c.WorkplaceStations:ForEach(function(pi, placeElem)
-        if found or placeIDs[pi] ~= placeWanted then return end
+        if found then return end
         local place = placeElem:get()
         local ids = place[F.StationIDs]
         place[F.StationStates]:ForEach(function(si, stElem)
@@ -168,10 +191,29 @@ local function FindStationState(c, placeWanted, stationWanted)
     return found
 end
 
+-- Which station a game economy object belongs to (used by the warning listener)
+local function StationOfEcon(c, econ)
+    local found = nil
+    pcall(function()
+        local addr = econ:GetAddress()
+        c.WorkplaceStations:ForEach(function(_, placeElem)
+            if found then return end
+            local place = placeElem:get()
+            local ids = place[F.StationIDs]
+            place[F.StationStates]:ForEach(function(si, stElem)
+                local e = stElem:get()[ECON_FIELD]
+                if not found and e and e:GetAddress() == addr then found = ids[si] end
+            end)
+        end)
+    end)
+    return found
+end
+
 ------------------------------------------------------------------------
 -- 5. DATA FILES
 ------------------------------------------------------------------------
 -- job_names.txt lines:  workplace|station|jobId|name|needs
+-- names[JobKey(station, job)] = {place, station, job, name, needs}
 local function LoadJobFile()
     local names = {}
     local f = io.open(FILES.names, "r")
@@ -179,7 +221,10 @@ local function LoadJobFile()
     for line in f:lines() do
         line = line:gsub("\r$", "")   -- tolerate Windows line endings
         local place, station, job, name, needs = line:match("^(%d+)|(%d+)|(%d+)|([^|]*)|?(.*)$")
-        if job then names[job] = { place = place, station = station, name = name, needs = needs } end
+        if job then
+            names[JobKey(tonumber(station), tonumber(job))] =
+                { place = place, station = tonumber(station), job = tonumber(job), name = name, needs = needs }
+        end
     end
     f:close()
     return names
@@ -190,24 +235,27 @@ local jobNameCache = nil   -- cleared whenever job_names.txt is saved
 local function SaveJobFile(names)
     local f = io.open(FILES.names, "w")
     if not f then Log("Could not write " .. FILES.names) return end
-    local ids = {}
-    for job in pairs(names) do ids[#ids + 1] = tonumber(job) end
-    table.sort(ids)
-    for _, job in ipairs(ids) do
-        local e = names[tostring(job)]
-        f:write(string.format("%s|%s|%d|%s|%s\n", e.place, e.station, job, e.name, e.needs or ""))
+    local keys = {}
+    for key in pairs(names) do keys[#keys + 1] = key end
+    table.sort(keys, function(a, b)   -- same order as before: by job number, then station
+        if KeyJob(a) ~= KeyJob(b) then return KeyJob(a) < KeyJob(b) end
+        return a < b
+    end)
+    for _, key in ipairs(keys) do
+        local e = names[key]
+        f:write(string.format("%s|%d|%d|%s|%s\n", e.place, e.station, e.job, e.name, e.needs or ""))
     end
     f:close()
     jobNameCache = nil
 end
 
-local function JobName(id)
+local function JobName(key)
     if not jobNameCache then
         jobNameCache = {}
         local ok, names = pcall(LoadJobFile)
-        if ok then for job, e in pairs(names) do jobNameCache[job] = e.name end end
+        if ok then for k, e in pairs(names) do jobNameCache[k] = e.name end end
     end
-    return jobNameCache[tostring(id)] or ("job " .. tostring(id))
+    return jobNameCache[key] or string.format("job %d at station %d", KeyJob(key), KeyStation(key))
 end
 
 -- targets.txt lines:
@@ -286,24 +334,23 @@ end
 ------------------------------------------------------------------------
 -- 6. RECIPES AND ITEM NAMES
 ------------------------------------------------------------------------
--- jobs[id] = {name, place, station, needs = {rowName,...}}
--- jobByName[norm name] = id  (farm jobs "Rice & Rice Seed" answer to both names)
+-- jobs[key] = {name, station, needs = {rowName,...}}   (key = JobKey(station, job))
+-- jobByName[norm name] = key  (farm jobs "Rice & Rice Seed" answer to both names)
 local function LoadRecipes()
     local jobs, jobByName = {}, {}
-    for id, e in pairs(LoadJobFile()) do
-        local jid = tonumber(id)
+    for key, e in pairs(LoadJobFile()) do
         local name = Trim(e.name or "")
         local needs = {}
         for row in (e.needs or ""):gmatch("item:([^=,]+)=") do needs[#needs + 1] = row end
-        jobs[jid] = { name = name, place = tonumber(e.place), station = tonumber(e.station), needs = needs }
-        for part in (name .. " & "):gmatch("(.-) & ") do jobByName[Norm(part)] = jid end
-        jobByName[Norm(name)] = jid
+        jobs[key] = { name = name, station = e.station, needs = needs }
+        for part in (name .. " & "):gmatch("(.-) & ") do jobByName[Norm(part)] = key end
+        jobByName[Norm(name)] = key
     end
     return jobs, jobByName
 end
 
 local function IsFarmJob(job)
-    return job and job.place == FARM_PLACE and job.station == FARM_STATION
+    return job and job.station == FARM_STATION
 end
 
 -- Item row name -> the name the game shows
@@ -393,25 +440,26 @@ end
 ------------------------------------------------------------------------
 -- 8. READING AND WRITING JOB PERCENTAGES
 ------------------------------------------------------------------------
-local function ReadForces(st)
+-- The game's maps use plain job numbers; the mod uses JobKey(station, job).
+local function ReadForces(st, station)
     local current = {}
-    st[F.Recipes]:ForEach(function(k, v) current[k:get()] = v:get()[F.Force] end)
+    st[F.Recipes]:ForEach(function(k, v) current[JobKey(station, k:get())] = v:get()[F.Force] end)
     return current
 end
 
 -- Writes new Force values into a recipes map
-local function WriteForces(recipes, changes)
+local function WriteForces(recipes, changes, station)
     recipes:ForEach(function(k, v)
-        local job = k:get()
-        if changes[job] ~= nil then v:get()[F.Force] = changes[job] end
+        local key = JobKey(station, k:get())
+        if changes[key] ~= nil then v:get()[F.Force] = changes[key] end
     end)
 end
 
 -- Write to both copies: the one the menu shows and the one the workers use
-local function ApplyForces(st, new)
-    WriteForces(st[F.Recipes], new)
+local function ApplyForces(st, new, station)
+    WriteForces(st[F.Recipes], new, station)
     local econ = st[ECON_FIELD]
-    if econ and econ:IsValid() then WriteForces(econ.Workstation_ref[F.Recipes], new) end
+    if econ and econ:IsValid() then WriteForces(econ.Workstation_ref[F.Recipes], new, station) end
 end
 
 ------------------------------------------------------------------------
@@ -435,14 +483,16 @@ local function TryAttachWarningHooks()
     local classPath = econ:GetClass():GetFullName():gsub("^%S+%s+", "")
     for fn, label in pairs(WARNINGS) do
         local ok, err = pcall(function()
-            RegisterHook(classPath .. ":" .. fn, function(_, jobID)
+            RegisterHook(classPath .. ":" .. fn, function(self, jobID)
                 local id = jobID:get()
-                local key = fn .. ":" .. tostring(id)
+                local station = StationOfEcon(GetNpcController(), self:get())
+                local jkey = station and JobKey(station, id) or id
+                local key = fn .. ":" .. tostring(jkey)
                 local now = os.time()
                 recentWarn[key] = now
                 if lastPrinted[key] and now - lastPrinted[key] < 60 then return end
                 lastPrinted[key] = now
-                Log(string.format("WARNING  %-22s -> %s", label, JobName(id)))
+                Log(string.format("WARNING  %-22s -> %s", label, station and JobName(jkey) or ("job " .. id)))
             end)
         end)
         if not ok then Log("Could not hook " .. fn .. ": " .. tostring(err)) end
@@ -488,7 +538,7 @@ local function BuildDemand(targets, jobByName, haveAll, report)
     for key, when in pairs(recentWarn) do
         local fn, id = key:match("^(.-):(%d+)$")
         if fn == "NotEnoughToolWarning" and now - when < WARNING_MEMORY_S then
-            local tool = TOOL_FOR_JOB[tonumber(id)]
+            local tool = TOOL_FOR_STATION[KeyStation(tonumber(id))]
             if tool then add(jobByName[Norm(tool)], 1.0, tool .. " (workers are waiting for it)") end
         end
     end
@@ -568,10 +618,10 @@ end
 
 -- New percentages for one station, or nil if nothing changes.
 -- A station where nothing is needed is paused (all 0%).
-local function PlanStation(c, place, station, demand)
-    local st = FindStationState(c, place, station)
+local function PlanStation(c, station, demand)
+    local st = FindStationState(c, station)
     if not st then return nil end
-    local current = ReadForces(st)
+    local current = ReadForces(st, station)
     local want = {}
     for job in pairs(current) do
         if demand[job] then want[job] = demand[job] end
@@ -615,9 +665,9 @@ local function CropOf(job)   -- "Rice & Rice Seed" -> "Rice", "Rice Seed"
 end
 
 local function PlanFarm(c, jobs, have, haveAll, targets, farmNeeds, lines)
-    local st = FindStationState(c, FARM_PLACE, FARM_STATION)
+    local st = FindStationState(c, FARM_STATION)
     if not st then return nil end
-    local current, new, moved = ReadForces(st), {}, 0
+    local current, new, moved = ReadForces(st, FARM_STATION), {}, 0
     for job, f in pairs(current) do new[job] = f end
 
     -- 1) seed guard
@@ -676,7 +726,7 @@ local function PlanFarm(c, jobs, have, haveAll, targets, farmNeeds, lines)
     end
 
     -- 4) crop targets
-    local over, under, isOver = {}, {}, {}
+    local over, under, isOver, noSeeds = {}, {}, {}, {}
     for job in pairs(new) do
         local crop, seedName = CropOf(jobs[job])
         local tc = crop and targets[crop]
@@ -690,9 +740,13 @@ local function PlanFarm(c, jobs, have, haveAll, targets, farmNeeds, lines)
             elseif (have[Norm(seedName)] or 0) > 0 then
                 under[#under + 1] = job
             else
-                lines[#lines + 1] = string.format("   Farm: %s is short but there are no %s in the warehouse", crop, seedName)
+                noSeeds[#noSeeds + 1] = crop
             end
         end
+    end
+    if #noSeeds > 0 then
+        table.sort(noSeeds)
+        lines[#lines + 1] = "   Farm: short, but no seeds in the warehouse for: " .. table.concat(noSeeds, ", ")
     end
     if #over > 0 and #under == 0 then
         -- nothing with a target is short: give the share to crops the kitchen needs
@@ -762,29 +816,59 @@ local function RunManager(apply)
     -- what is needed, including ingredients down the chain
     local demand, reason = BuildDemand(targets, jobByName, haveAll, report)
     PropagateDemand(demand, reason, jobs, jobByName, have, haveAll, farmNeeds, blocked, moveAdvice)
-    -- only mention skipped recipes at stations the player has actually built
-    local notBuilt = 0
+
+    -- a recipe is also blocked when it needs something we have none of that
+    -- can't be made either (Bread <- Sourdough <- Rice Flour <- no Rice)
+    local grew = true
+    while grew do
+        grew = false
+        for job in pairs(demand) do
+            local j = jobs[job]
+            if j and not blocked[job] then
+                for _, row in ipairs(j.needs) do
+                    local ing = RowToName(row)
+                    if (haveAll[Norm(ing)] or 0) == 0 then
+                        local producer = jobByName[Norm(ing)]
+                        if not producer or producer == job or blocked[producer] or not demand[producer] then
+                            blocked[job] = ing
+                            grew = true
+                            break
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    -- one summary line: what is missing, and how many recipes each item blocks
+    -- (farm crops are left out here - the farm has its own "no seeds" line)
+    local missing, blockedCount = {}, 0
     for job, ing in pairs(blocked) do
         demand[job] = nil
         local j = jobs[job]
-        if j and FindStationState(c, j.place, j.station) then
-            report[#report + 1] = string.format("   - skipping %s: no %s in stock", j.name, ing)
-        else
-            notBuilt = notBuilt + 1
+        if j and not IsFarmJob(j) and FindStationState(c, j.station) then
+            missing[ing] = (missing[ing] or 0) + 1
+            blockedCount = blockedCount + 1
         end
     end
-    if notBuilt > 0 then
-        report[#report + 1] = string.format("   (%d recipe(s) ignored: their station isn't built yet)", notBuilt)
+    if blockedCount > 0 then
+        local list = {}
+        for ing, n in pairs(missing) do list[#list + 1] = { ing = ing, n = n } end
+        table.sort(list, function(a, b) if a.n ~= b.n then return a.n > b.n end return a.ing < b.ing end)
+        local parts = {}
+        for _, e in ipairs(list) do parts[#parts + 1] = string.format("%s (%d)", e.ing, e.n) end
+        report[#report + 1] = string.format("   %d recipe(s) can't be made yet. Missing: %s",
+            blockedCount, table.concat(parts, ", "))
     end
 
     -- plan each managed station
     local plans, plannedBy = {}, {}
-    for _, ps in ipairs(MANAGED) do
-        local st, new, current = PlanStation(c, ps[1], ps[2], demand)
+    for _, station in ipairs(MANAGED) do
+        local st, new, current = PlanStation(c, station, demand)
         if st then
-            plans[#plans + 1] = { st = st, new = new }
-            plannedBy[ps[1] .. ":" .. ps[2]] = new
-            lines[#lines + 1] = string.format("  Workplace %d / Station %d:", ps[1], ps[2])
+            plans[#plans + 1] = { st = st, new = new, station = station }
+            plannedBy[station] = new
+            lines[#lines + 1] = "  " .. StationLabel(station) .. ":"
             for job, f in pairs(new) do
                 if math.abs(f - (current[job] or 0)) > 0.01 then
                     local name = jobs[job] and jobs[job].name or ("job " .. job)
@@ -795,29 +879,32 @@ local function RunManager(apply)
         end
     end
     local fst, fnew = PlanFarm(c, jobs, have, haveAll, targets, farmNeeds, lines)
-    if fst then plans[#plans + 1] = { st = fst, new = fnew } end
+    if fst then plans[#plans + 1] = { st = fst, new = fnew, station = FARM_STATION } end
 
     -- which managed stations end up paused
     local paused = {}
-    for _, ps in ipairs(MANAGED) do
-        local forces = plannedBy[ps[1] .. ":" .. ps[2]]
+    for _, station in ipairs(MANAGED) do
+        local forces = plannedBy[station]
         if not forces then
-            local st = FindStationState(c, ps[1], ps[2])
-            forces = st and ReadForces(st) or nil
+            local st = FindStationState(c, station)
+            forces = st and ReadForces(st, station) or nil
         end
         if forces then
-            local sum, names = 0, {}
-            for job, f in pairs(forces) do
-                sum = sum + f
-                if #names < 3 and jobs[job] then names[#names + 1] = jobs[job].name end
-            end
-            if sum < 0.001 then paused[#paused + 1] = table.concat(names, "/") end
+            local sum = 0
+            for _, f in pairs(forces) do sum = sum + f end
+            if sum < 0.001 then paused[#paused + 1] = STATION_NAME[station] or ("station " .. station) end
         end
     end
 
     -- print the plan
     Log(apply and "=== Manager: applying changes ===" or "=== Manager plan (nothing changed yet) ===")
     Log(string.format("  Warehouse chest: %s of %s slots used", tostring(used), tostring(total)))
+    local unlocked = 0
+    for _, station in ipairs(MANAGED) do
+        if FindStationState(c, station) then unlocked = unlocked + 1 end
+    end
+    local farm = FindStationState(c, FARM_STATION) and ", farm unlocked" or ", no farm yet"
+    Log(string.format("  Stations unlocked: %d of %d%s", unlocked, #MANAGED, farm))
     for _, l in ipairs(report) do Log(l) end
     if #plans == 0 then Log("  Everything is on target - no changes needed.") end
     for _, l in ipairs(lines) do Log(l) end
@@ -826,7 +913,7 @@ local function RunManager(apply)
         Log(string.format("  Move from caravan: %s (%d there, warehouse has %d)", ing, m.caravan, m.warehouse))
     end
     -- farm advice only makes sense once there is a farm
-    if FindStationState(c, FARM_PLACE, FARM_STATION) then
+    if FindStationState(c, FARM_STATION) then
         for ing, dish in pairs(farmNeeds) do
             if not targets[ing] then
                 Log(string.format("  Farm advice: grow more %s (needed for %s)", ing, dish))
@@ -835,7 +922,7 @@ local function RunManager(apply)
     end
 
     if apply then
-        for _, p in ipairs(plans) do ApplyForces(p.st, p.new) end
+        for _, p in ipairs(plans) do ApplyForces(p.st, p.new, p.station) end
         Log(string.format("  Applied changes to %d station(s).", #plans))
     end
 end
@@ -857,8 +944,9 @@ local function LearnNames()
             local name = b.RecipeNameText:ToString()
             if name == nil or name == "" then return end
             if tostring(b.RecipeID) == "0" and tostring(b.Workstation) == "0" then return end
-            local job = tostring(b.RecipeID)
-            local isNew = names[job] == nil
+            local station, job = tonumber(tostring(b.Workstation)), tonumber(tostring(b.RecipeID))
+            local key = JobKey(station, job)
+            local isNew = names[key] == nil
             local needs = {}
             pcall(function()
                 b.RequiredItems:ForEach(function(i, h)
@@ -870,10 +958,9 @@ local function LearnNames()
                     needs[#needs + 1] = "tool:" .. h:get().RowName:ToString() .. "=" .. tostring(b.RequiredToolsAmount[i])
                 end)
             end)
-            names[job] = { place = tostring(b.Building), station = tostring(b.Workstation), name = name,
+            names[key] = { place = tostring(b.Building), station = station, job = job, name = name,
                            needs = table.concat(needs, ",") }
-            Log(string.format("Workplace %s / Station %s  job %s = %s%s",
-                tostring(b.Building), tostring(b.Workstation), job, name, isNew and "  (new)" or ""))
+            Log(string.format("Station %d  job %d = %s%s", station, job, name, isNew and "  (new)" or ""))
             learned = learned + 1
         end)
         if not ok then Log("Skipped a button: " .. tostring(err)) end
@@ -932,8 +1019,34 @@ local function Safe(label, fn)
     end
 end
 
+-- F9: list every station this village has unlocked, with its jobs (read-only)
+local function PrintStations()
+    local c = GetNpcController()
+    if not c then Log("Stations: village not loaded yet.") return end
+    local jobs = LoadRecipes()
+    local managed = {}
+    for _, station in ipairs(MANAGED) do managed[station] = true end
+    managed[FARM_STATION] = true
+    Log("=== Unlocked stations ===")
+    c.WorkplaceStations:ForEach(function(_, placeElem)
+        local place = placeElem:get()
+        local ids = place[F.StationIDs]
+        place[F.StationStates]:ForEach(function(si, stElem)
+            local station = ids[si]
+            local names = {}
+            for key, f in pairs(ReadForces(stElem:get(), station)) do
+                names[#names + 1] = string.format("%s %s", jobs[key] and jobs[key].name or JobName(key), Pct(f))
+            end
+            table.sort(names)
+            Log(string.format("  %-40s %-9s %s", StationLabel(station), managed[station] and "(managed)" or "",
+                table.concat(names, ", ")))
+        end)
+    end)
+end
+
 local autoOn = false
 
+RegisterKeyBind(Key.F9,        Safe("Stations", PrintStations))
 RegisterKeyBind(Key.NUM_ONE,   Safe("Manager", function() RunManager(false) end))
 RegisterKeyBind(Key.NUM_TWO,   Safe("Manager", function() RunManager(true) end))
 RegisterKeyBind(Key.NUM_THREE, function()

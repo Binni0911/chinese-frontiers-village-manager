@@ -20,11 +20,11 @@ luac5.4 -p ../VillageManager/Scripts/main.lua 2>/dev/null || $LUA -e "assert(loa
 echo "ok   syntax"
 
 # Stations the mod may change (section 1 of main.lua) plus the farm
-MANAGED="8/9 8/10 8/8 9/13 9/14 10/11 10/12 6/17 3/1 3/2 3/3 3/4 3/5 3/6 3/7 7/15 7/16 11/21"
+MANAGED="8/9 8/10 8/8 9/13 9/14 10/11 10/12 6/17 3/1 3/2 3/3 3/4 3/5 3/6 3/7 7/15 7/16 11/21 1/9"
 
-run() {  # name, env, check-totals(0/1), keys...
+run() {  # name, env, check-totals(0/1), keys...   (WORLD=file picks the test village)
   local name=$1 envv=$2 checksum=$3; shift 3
-  env $envv "$LUA" harness.lua "$stage/Scripts/main.lua" world.lua "$@" > "$stage/$name.out" 2>&1 || { echo "FAIL $name (crashed)"; cat "$stage/$name.out"; fail=1; return; }
+  env $envv "$LUA" harness.lua "$stage/Scripts/main.lua" "${WORLD:-world.lua}" "$@" > "$stage/$name.out" 2>&1 || { echo "FAIL $name (crashed)"; cat "$stage/$name.out"; fail=1; return; }
   grep -qi "error" "$stage/$name.out" && { echo "FAIL $name (error in output)"; grep -i error "$stage/$name.out"; fail=1; }
   sed -n '/### FINAL FORCES/,$p' "$stage/$name.out" > "$stage/$name.final"
   if [ "${UPDATE:-0}" = 1 ]; then cp "$stage/$name.final" "expected_$name.txt"; echo "saved $name"; return; fi
@@ -42,6 +42,8 @@ run() {  # name, env, check-totals(0/1), keys...
 run plan_only   ""        0 NUM_ONE
 run apply_twice ""        1 NUM_TWO NUM_TWO NUM_ONE
 run hungry      HUNGRY=1  1 NUM_TWO NUM_TWO
+# A brand-new village: different workplace numbers, unbuilt kitchen, no seeds
+WORLD=world_fresh.lua run fresh_save "" 1 NUM_TWO NUM_TWO F9
 
 [ $fail = 0 ] && echo "ALL TESTS PASSED" || echo "SOME TESTS FAILED"
 exit $fail

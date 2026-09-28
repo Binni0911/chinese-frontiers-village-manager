@@ -47,6 +47,7 @@ Clay      = 2000, 1500
 Sand      = 2000, 1500
 Stone     = 2000, 1500
 Limestone = 2000, 1500
+Fish      = 1000, 600   # fishing stops at 1000 fish, starts again at 600
 
 # --- Rice: above the first number the farm drops rice to 10% ---
 Rice      = 2000, 1600   # rice only stacks to 200, so 2000 = 10 slots

@@ -4,6 +4,7 @@
 3|7|5|Bamboo|tool:Tool_PrimitiveStoneHatchet=100.0
 3|3|6|Sand|tool:Tool_PrimitiveStoneShovel=200.0
 3|2|7|Stone|tool:Tool_PrimitiveStonePickAxe=100.0
+3|4|7|Fish|tool:Tool_FishingRod=20.0
 7|15|8|Builder's Paint Kit|item:Decoration_BrownKanpweedFlower=0.0,item:Decoration_CarnationFlower=0.0,item:Component_Flax=0.0,item:Component_Lime=0.0
 7|15|9|Artisan's Paint Kit|item:Decoration_MarigoldFlower=0.0,item:Decoration_GardenCosmosFlower=0.0,item:Decoration_CarnationFlower=0.0,item:Food_Ingredient_Egg=0.0
 7|16|10|Paper|item:Component_Bamboo=0.0
